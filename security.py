@@ -1,14 +1,22 @@
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
-from jose import jwt
+from jose import jwt,JWTError
 from datetime import datetime, timedelta, timezone
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional,Annotated
 
 from models import User
+from database import get_db
+
+
+
+
 
 load_dotenv()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
 
@@ -63,3 +71,37 @@ def create_access_token(username: str, user_id: int) -> str:
     expires = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     encode = {"sub": username, "id": user_id, "exp": expires}
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+
+
+
+
+
+
+#--------------------------------------------------------------------------------------------------------------------
+# Function for varification JWT token and returning logged in users 
+#--------------------------------------------------------------------------------------------------------------------
+
+def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials"
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("id")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise credentials_exception
+
+    return user
